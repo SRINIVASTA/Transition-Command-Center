@@ -10,7 +10,7 @@ st.set_page_config(page_title="Transition Command Center", layout="wide")
 
 # --- GITHUB CONFIG ---
 # Replace 'main' with your branch name if different
-GITHUB_URL = "https://githubusercontent.com"
+GITHUB_URL = "https://github.com/srinivasta/Project Management.csv"
 
 # --- CUSTOM PDF CLASS ---
 class TransitionPDF(FPDF):
