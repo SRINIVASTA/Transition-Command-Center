@@ -8,12 +8,18 @@ from io import BytesIO
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Transition Command Center", layout="wide")
 
-# --- CUSTOM PDF CLASS ---
+# --- CUSTOM PDF CLASS WITH BORDER ---
 class TransitionPDF(FPDF):
     def header(self):
+        # Draw a professional border for every page
+        self.set_line_width(0.5)
+        self.rect(5, 5, 200, 287) # x, y, width, height
+        
         self.set_font('Arial', 'I', 8)
         timestamp = datetime.now().strftime("%d-%b-%Y %H:%M:%S")
+        self.set_xy(10, 10)
         self.cell(0, 10, f'Report Generated: {timestamp}', 0, 1, 'R')
+        
         self.set_font('Arial', 'B', 16)
         self.cell(0, 10, 'TRANSITION COMPLETION REPORT', 0, 1, 'C')
         self.ln(5)
@@ -28,7 +34,7 @@ if uploaded_file:
     df_raw['End Date'] = pd.to_datetime(df_raw['End Date'], dayfirst=True)
     df_raw['Duration'] = (df_raw['End Date'] - df_raw['Start Date']).dt.days
 
-    # Auto 'At Risk' Logic (The 5th Status)
+    # Auto 'At Risk' Logic
     def add_risk(row):
         if row['Project Status'] == 'On Track' and row['Progress'] < 0.40:
             return 'At Risk'
@@ -44,7 +50,6 @@ if uploaded_file:
     selected_stat = st.sidebar.selectbox("Step 3: Select Status", statuses)
     df_final = df_filtered.copy() if selected_stat == "All" else df_filtered[df_filtered['Project Status'] == selected_stat]
 
-    # --- DASHBOARD DISPLAY ---
     if not df_final.empty:
         st.subheader(f"Dashboard: {selected_loc} | Status: {selected_stat}")
         fig, ax = plt.subplots(figsize=(10, len(df_final) * 0.5 + 2))
@@ -63,27 +68,37 @@ if uploaded_file:
         if st.sidebar.button("📄 Generate PDF Report"):
             pdf = TransitionPDF()
             
-            # PAGE 1: Roadmap & Table
+            # PAGE 1
             pdf.add_page()
             pdf.set_font("Arial", 'B', 12)
             pdf.cell(0, 10, f"Filter View: {selected_loc} / {selected_stat}", ln=True)
             
-            # Roadmap Image
             buf_gantt = BytesIO()
             fig.savefig(buf_gantt, format="png", bbox_inches='tight')
             buf_gantt.seek(0)
-            pdf.image(buf_gantt, x=10, y=40, w=190)
+            pdf.image(buf_gantt, x=15, y=45, w=180)
             
-            # Task Table
-            pdf.set_y(150)
+            # Action Table with Wrapping (multi_cell)
+            pdf.set_y(160)
             pdf.set_font("Arial", 'B', 10)
-            pdf.cell(90, 10, "Task", 1); pdf.cell(30, 10, "Status", 1); pdf.cell(40, 10, "Owner", 1); pdf.cell(30, 10, "Progress", 1); pdf.ln()
+            pdf.set_fill_color(240, 240, 240)
+            pdf.cell(85, 10, "Task", 1, 0, 'C', True)
+            pdf.cell(35, 10, "Status", 1, 0, 'C', True)
+            pdf.cell(40, 10, "Owner", 1, 0, 'C', True)
+            pdf.cell(30, 10, "Progress", 1, 1, 'C', True)
+            
             pdf.set_font("Arial", '', 8)
             for _, r in df_final.head(10).iterrows():
-                pdf.cell(90, 10, str(r['Task Name'])[:45], 1); pdf.cell(30, 10, str(r['Project Status']), 1); 
-                pdf.cell(40, 10, str(r['Assigned To']), 1); pdf.cell(30, 10, f"{int(r['Progress']*100)}%", 1); pdf.ln()
+                # Use multi_cell for Task to avoid hiding text
+                x_start = pdf.get_x()
+                y_start = pdf.get_y()
+                pdf.multi_cell(85, 8, str(r['Task Name']), 1)
+                pdf.set_xy(x_start + 85, y_start)
+                pdf.cell(35, 16, str(r['Project Status']), 1, 0, 'C') # height matches multi_cell approx
+                pdf.cell(40, 16, str(r['Assigned To']), 1, 0, 'C')
+                pdf.cell(30, 16, f"{int(r['Progress']*100)}%", 1, 1, 'C')
 
-            # PAGE 2: Summary Charts
+            # PAGE 2
             pdf.add_page()
             pdf.set_font("Arial", 'B', 14)
             pdf.cell(0, 10, "Project Status Distribution Summary", ln=True, align='C')
@@ -93,7 +108,7 @@ if uploaded_file:
             buf_pie = BytesIO()
             fig_pie.savefig(buf_pie, format="png", bbox_inches='tight')
             buf_pie.seek(0)
-            pdf.image(buf_pie, x=50, y=40, w=110)
+            pdf.image(buf_pie, x=55, y=50, w=100)
 
             # Finalize Output
             pdf_bytes = pdf.output()
