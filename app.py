@@ -10,18 +10,18 @@ import requests
 st.set_page_config(page_title="Transition Command Center", layout="wide")
 
 # --- GITHUB DATA SOURCE ---
-# Using the raw URL for your specific repository
+# Correct RAW URL for your specific repository and filename
 GITHUB_RAW_URL = "https://githubusercontent.com"
 
 @st.cache_data
-def load_data(url):
+def load_github_data(url):
     df = pd.read_csv(url)
     df['Start Date'] = pd.to_datetime(df['Start Date'], dayfirst=True)
     df['End Date'] = pd.to_datetime(df['End Date'], dayfirst=True)
     df['Duration'] = (df['End Date'] - df['Start Date']).dt.days
     return df
 
-# --- CUSTOM PDF CLASS ---
+# --- CUSTOM PDF CLASS WITH BORDER & TIMESTAMP ---
 class TransitionPDF(FPDF):
     def header(self):
         # Professional Page Border
@@ -49,21 +49,20 @@ df_raw = None
 
 if data_mode == "Live GitHub Data":
     try:
-        # Check connection status
-        response = requests.get(GITHUB_RAW_URL)
+        # Check connection status first
+        response = requests.get(GITHUB_RAW_URL, timeout=5)
         if response.status_code == 200:
-            df_raw = load_data(GITHUB_RAW_URL)
+            df_raw = load_github_data(GITHUB_RAW_URL)
             st.sidebar.success("✅ Connected to GitHub Data")
         else:
-            st.sidebar.error(f"❌ GitHub Connection Failed (Error {response.status_code})")
-            st.info("Ensure the file name is 'Project Management.csv' and the repo is Public.")
+            st.sidebar.error(f"❌ Connection Failed (Error {response.status_code})")
+            st.info("Check if the file on GitHub is exactly: Project Management.csv")
     except Exception as e:
-        st.sidebar.error(f"❌ Connection Error: {e}")
+        st.sidebar.error("❌ Connection Error: Ensure URL starts with '://githubusercontent.com'")
 else:
     uploaded_file = st.sidebar.file_uploader("Upload Project Management CSV", type=["csv"])
     if uploaded_file:
         df_raw = pd.read_csv(uploaded_file)
-        # Pre-process uploaded data
         df_raw['Start Date'] = pd.to_datetime(df_raw['Start Date'], dayfirst=True)
         df_raw['End Date'] = pd.to_datetime(df_raw['End Date'], dayfirst=True)
         df_raw['Duration'] = (df_raw['End Date'] - df_raw['Start Date']).dt.days
@@ -89,9 +88,10 @@ if df_raw is not None:
 
     # --- DESKTOP VIEW ---
     if not df_final.empty:
-        st.subheader(f"Current Dashboard: {selected_loc} | {selected_stat}")
+        st.subheader(f"Monitoring Dashboard: {selected_loc} | {selected_stat}")
         
-        fig, ax = plt.subplots(figsize=(10, len(df_final) * 0.5 + 2))
+        # Increase figure size based on task count
+        fig, ax = plt.subplots(figsize=(12, len(df_final) * 0.6 + 2))
         colors = {'Behind': '#e74c3c', 'At Risk': '#f39c12', 'On Track': '#2ecc71', 'Completed': '#3498db', 'On Hold': '#95a5a6'}
         
         for i, (idx, row) in enumerate(df_final.iterrows()):
@@ -108,49 +108,58 @@ if df_raw is not None:
         st.sidebar.markdown("---")
         if st.sidebar.button("📄 Generate PDF Report"):
             pdf = TransitionPDF()
-            pdf.add_page()
             
-            # Sub-header
+            # --- PAGE 1: Gantt Chart ---
+            pdf.add_page()
             pdf.set_font("Arial", 'B', 12)
             pdf.cell(0, 10, f"Filter View: {selected_loc} / {selected_stat}", ln=True)
             
-            # Insert Dashboard Image
+            # Insert Chart Image
             buf = BytesIO()
             fig.savefig(buf, format="png", bbox_inches='tight')
             buf.seek(0)
             pdf.image(buf, x=15, y=45, w=180)
             
-            # Action Table
-            pdf.set_y(160)
+            # --- PAGE 2: Action Table ---
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 14)
+            pdf.cell(0, 10, "Critical Action Items & Status Summary", ln=True, align='C')
+            pdf.ln(5)
+            
+            # Table Header
             pdf.set_font("Arial", 'B', 10)
             pdf.set_fill_color(240, 240, 240)
-            pdf.cell(90, 10, "Task", 1, 0, 'C', True)
+            pdf.cell(90, 10, "Task Name", 1, 0, 'C', True)
             pdf.cell(40, 10, "Owner", 1, 0, 'C', True)
             pdf.cell(30, 10, "Progress", 1, 0, 'C', True)
             pdf.cell(30, 10, "Status", 1, 1, 'C', True)
             
+            # Table Rows (Using multi_cell for wrapping long text)
             pdf.set_font("Arial", '', 8)
-            for _, r in df_final.head(12).iterrows():
-                # Use multi_cell to prevent text hiding
-                x, y = pdf.get_x(), pdf.get_y()
-                pdf.multi_cell(90, 8, str(r['Task Name']), 1)
-                pdf.set_xy(x + 90, y)
-                pdf.cell(40, 8, str(r['Assigned To']), 1, 0, 'C')
-                pdf.cell(30, 8, f"{int(r['Progress']*100)}%", 1, 0, 'C')
-                pdf.cell(30, 8, str(r['Project Status']), 1, 1, 'C')
+            for _, r in df_final.iterrows():
+                curr_x, curr_y = pdf.get_x(), pdf.get_y()
+                pdf.multi_cell(90, 10, str(r['Task Name']), 1)
+                pdf.set_xy(curr_x + 90, curr_y)
+                pdf.cell(40, 10, str(r['Assigned To']), 1, 0, 'C')
+                pdf.cell(30, 10, f"{int(r['Progress']*100)}%", 1, 0, 'C')
+                pdf.cell(30, 10, str(r['Project Status']), 1, 1, 'C')
 
-            # Final Output
+            # Final Output Generation
             pdf_bytes = pdf.output()
-            if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
-            else: pdf_bytes = bytes(pdf_bytes)
+            # Handle version differences in fpdf2 output
+            if isinstance(pdf_bytes, str):
+                final_bytes = pdf_bytes.encode('latin-1')
+            else:
+                final_bytes = bytes(pdf_bytes)
 
             st.sidebar.download_button(
                 label="✅ Download PDF Report", 
-                data=pdf_bytes, 
+                data=final_bytes, 
                 file_name=f"Transition_Report_{selected_loc}.pdf", 
                 mime="application/pdf"
             )
+            st.sidebar.success("PDF Ready!")
     else:
         st.warning("No data found for this selection.")
 else:
-    st.info("Please select a data source or upload your CSV to begin.")
+    st.info("Select a data source in the sidebar to begin monitoring.")
