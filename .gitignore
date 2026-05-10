@@ -1,0 +1,7 @@
+# Ignore the project management data
+Project Management.csv
+
+# Ignore Python cache and environment files
+__pycache__/
+*.py[cod]
+.env
